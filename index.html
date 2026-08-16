@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vibe Check - Developer Portal</title>
-        <meta name="google-site-verification" content="gViceonFpqD25e2SKYxC9Rp7W2tBYx0GuBhhkwyvalA">
+    <meta name="google-site-verification" content="gViceonFpqD25e2SKYxC9Rp7W2tBYx0GuBhhkwyvalA">
     <style>
         body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
         .hero { text-align: center; padding: 60px 20px; }
@@ -18,6 +18,7 @@
         .policy-content h3 { color: #444; margin-top: 20px; }
         .policy-content ul { margin-bottom: 20px; }
         .policy-content li { margin-bottom: 10px; }
+        .notice { background: #f6f7fb; border-left: 4px solid #667eea; padding: 14px 16px; margin: 18px 0; }
         .footer { background: rgba(0, 0, 0, 0.8); color: #aaa; text-align: center; padding: 20px; font-size: 0.85em; }
     </style>
 </head>
@@ -32,50 +33,63 @@
     <div class="policy-section">
         <div class="policy-content">
             <h1>Privacy Policy</h1>
-            <p><strong>Effective Date:</strong> August 12, 2026</p>
-            
-            <p>This privacy policy applies to the mobile application "VibeCheck drinking game" (package <code>com.vibegame.app</code>). The app is provided as a freemium service with optional rewarded advertising and an optional auto-renewing annual Vibe Pro subscription.</p>
-            
-            <h2>1. Data Collection & Storage</h2>
-            <p>We (the developer) do not collect, transmit, or store any of your personal data on our own servers.</p>
-            
+            <p><strong>Effective Date:</strong> August 16, 2026</p>
+
+            <p>This privacy policy applies to the mobile application <strong>VibeCheck drinking game</strong> (package <code>com.vibegame.app</code>). The app is provided as a freemium adult party game with optional rewarded advertising, an optional auto-renewing annual Vibe Pro subscription, and an optional three-day non-renewing Vibe Pro Weekend purchase where available through Google Play.</p>
+
+            <h2>1. Data Collection & Local Storage</h2>
+            <p>We do not operate a backend that automatically collects or stores your gameplay data, player names, custom cards or Gemini API key. Most app data is stored locally on your device.</p>
+
             <h3>Local Storage</h3>
-            <p>The app stores the following data locally on your device using your device's internal storage:</p>
+            <p>The app may store the following information locally on your device:</p>
             <ul>
-                <li><strong>Player Names:</strong> Names entered during game setup.</li>
-                <li><strong>Custom Content:</strong> "Custom Cards" text created by you or generated via AI.</li>
-                <li><strong>App Settings:</strong> Volume preferences, game mode configurations, and "Sober Mode" status.</li>
-                <li><strong>API Keys:</strong> If you provide a personal Google Gemini API key for AI Deck Forge, it is stored in the app's local data on your device. Do not save a key on a device you do not trust.</li>
+                <li><strong>Player data:</strong> Player names, avatars and cumulative play statistics.</li>
+                <li><strong>Custom content:</strong> Custom cards you create manually or generate through AI Deck Forge.</li>
+                <li><strong>App settings:</strong> Audio, haptics, motion, performance preferences, Sober Mode and related settings.</li>
+                <li><strong>Vibe Pro status:</strong> A local cache of current entitlement status. Google Play remains the purchase source of truth.</li>
+                <li><strong>Advertising consent:</strong> Consent choices used by Google AdMob where required.</li>
+                <li><strong>Gemini API key:</strong> If you provide your own Google Gemini API key for AI Deck Forge, it is stored in the app's local data on your device. Do not save a key on a device you do not trust.</li>
+                <li><strong>Card report drafts:</strong> If you use the report control, the app can save a local draft containing the card ID, raw card text, card type, mode, intensity, selected reason, optional comment, source classification, app version/build and local delivery status.</li>
             </ul>
-            <p>This data remains on your device. The app's <strong>Delete All Data</strong> control or Android's clear-app-data control removes it. Uninstall behaviour may also depend on Android or Google backup settings. We do not operate an account or backup server.</p>
-            
-            <h2>2. Network Access & Third-Party Services</h2>
-            <p>Core local gameplay does not require our own server. Internet access is used for rewarded ads, streamed Party Radio, optional AI Deck Forge, and Google Play purchase verification or restoration. These third-party services may collect data under their own privacy policies:</p>
-            <ul>
-                <li><strong>Google AdMob:</strong> Used for optional rewarded advertisements. AdMob may process device or account identifiers, an IP address (which may estimate approximate location), app interactions, ad events and diagnostic performance information for advertising, measurement, security and service operation. Consent choices determine whether eligible ads are personalised.</li>
-                <li><strong>Google Play Services:</strong> Used for the optional annual Vibe Pro subscription, purchase status, restoration and licence verification. Google Play handles payment details; we do not receive card details on our own servers.</li>
-                <li><strong>Google Generative AI (Gemini):</strong> Used only when a Vibe Pro user initiates AI Deck Forge. The app sends a fixed generation request and the user-provided API key directly to Google. Vibe Check does not proxy or receive the key. Gemini account usage charges may apply.</li>
-                <li><strong>Pixabay CDN:</strong> Party Radio streams selected licensed tracks from Pixabay's content-delivery network. The remote service necessarily receives connection information such as IP address when a track is requested.</li>
-            </ul>
-            
-            <h2>3. Children's Privacy</h2>
-            <p>This application is intended for adults (17+ / 18+ depending on jurisdiction) and contains mature themes. We do not knowingly collect data from children under the age of 13.</p>
-            
-            <h2>4. GDPR & Data Consent (EEA/UK Users)</h2>
-            <p>For users in the European Economic Area (EEA), United Kingdom (UK), and Switzerland, we request your consent to display personalized advertisements via Google AdMob.</p>
-            
-            <h3>Revoking Consent</h3>
-            <p>You have the right to withdraw your consent for personalized advertising and data tracking at any time. To do so, please follow these steps within the application:</p>
-            <ol>
-                <li>Open the <strong>VibeCheck drinking game</strong> app.</li>
-                <li>Navigate to the <strong>Settings</strong> menu (gear icon).</li>
-                <li>Tap <strong>Cookie Settings</strong>.</li>
-                <li>Update your preferences or select "Do Not Consent" in the provided form.</li>
-            </ol>
-            <p>Changing consent may affect ad personalisation. Rewarded ads remain optional and are only requested when you choose an ad-supported unlock.</p>
-            
-            <h2>5. Contact Us</h2>
-            <p>If you have questions about this privacy policy, please contact us at:</p>
+
+            <p>Use <strong>Settings &gt; Reset App Data &gt; CONFIRM RESET</strong>, or Android's clear-app-data control, to remove locally stored app data. Android or Google backup settings may affect what is restored after reinstall. We do not operate a Vibe Check account or backup server.</p>
+
+            <h2>2. Card Reporting</h2>
+            <p>Saving a report draft does not send anything to us. If you choose the email handoff, Vibe Check opens a pre-filled email for you to review. Nothing is sent unless you press <strong>Send</strong> in your email app.</p>
+            <p>If you send a report email, the report content, your sender email address and information handled by your email provider may be visible to the developer. Reporting does not automatically delete the card from your device.</p>
+
+            <h2>3. Network Access & Third-Party Services</h2>
+            <p>Core local gameplay does not require a Vibe Check server. Internet access may be used for optional rewarded ads, streamed Party Radio, AI Deck Forge, Google Play purchase verification/restoration and user-initiated report email delivery. Third-party services may process data under their own privacy policies.</p>
+
+            <h3>Google AdMob</h3>
+            <p>AdMob is used for optional rewarded advertisements. Google and its partners may process device or account identifiers, IP address and approximate location, app interactions, ad events and diagnostic/performance information for advertising, measurement, security and service operation. Consent choices affect whether eligible ads are personalised.</p>
+
+            <h3>Google Play Services</h3>
+            <p>Google Play handles Vibe Pro purchases, subscription management, licence verification, entitlement restoration and payment processing. Vibe Check does not receive your card details on its own servers. The app may locally cache entitlement status, but Google Play remains the authoritative purchase source.</p>
+
+            <h3>Google Generative AI (Gemini)</h3>
+            <p>AI Deck Forge is an optional Vibe Pro feature. When you request a deck, the app sends the fixed generation request and your user-provided Gemini API key directly to Google. Vibe Check does not operate an AI proxy server and does not receive your key. Google account/API terms and any provider usage charges apply.</p>
+
+            <h3>Pixabay CDN</h3>
+            <p>Party Radio streams selected licensed tracks from Pixabay's content-delivery network. The remote service necessarily receives connection information such as IP address when a track is requested. Party Radio is optional and remote tracks can become unavailable.</p>
+
+            <h2>4. Camera & Device Permissions</h2>
+            <p>The current Android app does not request Camera permission. Vibe Check does not record, save or transmit photos or video from your camera. Any card that tells you to take a photo is an instruction for you to use your own device camera app outside Vibe Check.</p>
+
+            <h2>5. Advertising Consent (EEA/UK/Switzerland)</h2>
+            <p>Where required, Vibe Check uses Google's consent system for advertising choices. You can revisit your choice from <strong>Settings &gt; Cookie Settings</strong>. Rewarded ads remain optional and are requested only when you choose an ad-supported unlock.</p>
+
+            <h2>6. Children's Privacy</h2>
+            <p>Vibe Check is intended for adults and contains mature themes. We do not knowingly collect personal data from children through our own servers.</p>
+
+            <h2>7. Your Choices & Data Rights</h2>
+            <p>Because most gameplay and custom content is stored locally, you can access and change much of it directly in the app. You can remove players or custom cards through the UI and remove local app data through <strong>Reset App Data</strong> or Android's clear-app-data control.</p>
+            <div class="notice">
+                <strong>Important:</strong> Data processed by Google AdMob, Google Play, Gemini, Pixabay or your email provider is governed by those services' own systems and privacy terms. Information you deliberately send in a report email is no longer local-only.
+            </div>
+
+            <h2>8. Contact Us</h2>
+            <p>If you have questions about this privacy policy, contact:</p>
             <p><a href="mailto:alphawolfjamie@gmail.com">alphawolfjamie@gmail.com</a></p>
         </div>
     </div>
