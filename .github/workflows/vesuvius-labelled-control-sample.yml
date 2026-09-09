@@ -1,0 +1,78 @@
+name: Isolated labelled validation input sample
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-labelled-control-sample.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download existing labels and CT only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import collections,concurrent.futures,datetime,hashlib,json,pathlib,re,threading,urllib.request
+          OUT=pathlib.Path('validation-inputs'); OUT.mkdir()
+          PREFIX='ink_9um/labels/aligned-scrollprizeorg-21slices/pherc0139-w016/'
+          URL='https://huggingface.co/api/buckets/scrollprize/datasets/tree/'+PREFIX+'pherc0139-w016_validation_mask.zarr'
+          listings=[]; pages=0
+          while URL:
+              assert URL.startswith('https://huggingface.co/') and pages<6
+              with urllib.request.urlopen(URL,timeout=30) as response:
+                  data=response.read(1500001); assert len(data)<=1500000
+                  chunk=json.loads(data); assert isinstance(chunk,list);listings+=chunk
+                  link=response.headers.get('Link','')
+              (OUT/f'listing-{pages}.json').write_bytes(data)
+              match=re.search(r'<([^>]+)>;\s*rel="next"',link);URL=match.group(1) if match else None
+              pages+=1
+          files=[e for e in listings if re.fullmatch(r'0\.\d+\.\d+',e['path'].rsplit('/',1)[-1])]
+          assert files
+          common=collections.Counter(e.get('xetHash') for e in files).most_common(1)[0][0]
+          candidates=[e for e in files if e.get('xetHash')!=common]
+          assert candidates,'No distinct validation-mask chunks found'
+          candidates.sort(key=lambda e:tuple(map(int,e['path'].rsplit('/',1)[-1].split('.'))))
+          selected=candidates[len(candidates)//2];_,row,col=map(int,selected['path'].rsplit('/',1)[-1].split('.'))
+          rows=list(range(max(0,min(row-2,55-5)),max(0,min(row-2,55-5))+5))
+          cols=list(range(max(0,min(col-2,57-5)),max(0,min(col-2,57-5))+5))
+          tasks=[]
+          HF='https://huggingface.co/buckets/scrollprize/datasets/resolve/'
+          for kind in ('inklabels','supervision_mask','validation_mask'):
+              root=PREFIX+'pherc0139-w016_'+kind+'.zarr/'
+              for key in ('.zattrs','0/.zarray'):
+                  tasks.append((HF+root+key,f'labels/{kind}/{key}',50000))
+              for r in rows:
+                  for c in cols:tasks.append((HF+root+f'0/0.{r}.{c}',f'labels/{kind}/0/0.{r}.{c}',500000))
+          S3='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/PHerc0139/segments/20250108000004-w029_2025010827/surface-volumes/2.399um-0.22m-78keV-volume-20260102150214.zarr/'
+          for r in rows:
+              for c in cols:tasks.append((S3+f'2/0/{r}/{c}',f'volume/0.{r}.{c}',1800000))
+          tasks += [(S3+'2/.zarray','volume/zarray.json',10000),(S3+'.zattrs','volume/zattrs.json',10000)]
+          lock=threading.Lock();total=0
+          def fetch(task):
+              global total
+              url,name,limit=task;result={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(url,timeout=35) as resp:data=resp.read(limit+1)
+                  assert len(data)<=limit
+                  with lock:
+                      total+=len(data); assert total<70*1024*1024
+                  p=OUT/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+                  result.update(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+              except Exception as e: result['error']=str(e)
+              return result
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(fetch,tasks))
+          meta={'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Existing labelled validation control only. No predictions, novel transcriptions, discoveries or deployments.','selection':'Numeric median of validation chunks with non-modal content hash; selection made before any model predictions. Not a random corpus sample.','selected':selected,'listing_pages':pages,'listing_files':len(files),'distinct_validation_chunks':len(candidates),'rows':rows,'cols':cols,'bytes':total,'files':results}
+          (OUT/'manifest.json').write_text(json.dumps(meta,indent=2))
+          print('SELECTION',row,col,'ROWS',rows,'COLS',cols,'PAGES',pages,'BYTES',total)
+          print('ERRORS',json.dumps([e for e in results if 'error'in e]))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-labelled-validation-inputs
+          path: validation-inputs/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
