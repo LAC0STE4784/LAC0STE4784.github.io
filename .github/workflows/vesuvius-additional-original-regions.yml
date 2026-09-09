@@ -1,0 +1,53 @@
+name: Isolated additional original scroll regions
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-additional-original-regions.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download only published raw CT and metadata
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures,datetime,hashlib,json,pathlib,threading,urllib.request
+          OUT=pathlib.Path('additional-regions');OUT.mkdir()
+          B='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/'
+          cases=[('PHerc0800_A','PHerc0800/segments/20251028222030-auto_grown_20251028222030940/surface-volumes/8.64um-1.2m-116keV-volume-20250521135224'),('PHerc1447_B','PHerc1447/segments/20250703034159-auto_grown_20250703034159599/surface-volumes/8.64um-1.2m-116keV-volume-20250521151220')]
+          tasks=[];descriptions=[];total=0;lock=threading.Lock()
+          def fetch(t):
+              global total
+              url,name,limit=t;e={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(url,timeout=30)as r:b=r.read(limit+1)
+                  assert len(b)<=limit
+                  with lock:total+=len(b);assert total<170*1024*1024
+                  p=OUT/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b)
+                  e.update(bytes=len(b),sha256=hashlib.sha256(b).hexdigest())
+              except Exception as ex:e['error']=str(ex)
+              return e
+          entries=[]
+          for name,path in cases:
+              m=fetch((B+path+'.zarr/0/.zarray',name+'/zarray.json',10000));entries.append(m)
+              if 'error'in m:continue
+              meta=json.loads((OUT/name/'zarray.json').read_text());assert meta['shape'][0]==31 and meta['chunks']==[31,128,128]
+              row0=(meta['shape'][1]-1024)//256;col0=(meta['shape'][2]-1024)//256
+              rows=list(range(row0,row0+8));cols=list(range(col0,col0+8));sep=meta.get('dimension_separator','.')
+              descriptions.append({'name':name,'source_root':B+path,'origin_yx':[row0*128,col0*128],'rows':rows,'cols':cols,'shape':[31,1024,1024],'selection':'Centered 1024-square snapped to chunk boundaries; chosen before viewing target predictions. No inference in this job.'})
+              tasks.append((B+path+'.zarr/.zattrs',name+'/zattrs.json',20000))
+              for row in rows:
+                  for col in cols:tasks.append((B+path+'.zarr/0/'+sep.join(map(str,(0,row,col))),name+f'/chunks/0.{row}.{col}',600000))
+              for z in(5,15,25):tasks.append((B+path+'.tifs/'+f'{z:02d}.tif',name+f'/whole/{z:02d}.tif',14*1024*1024))
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4)as pool:entries+=list(pool.map(fetch,tasks))
+          (OUT/'manifest.json').write_text(json.dumps({'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Pre-existing public raw CT only; no predictions, new writing, discoveries, schedules, deployments or paid APIs.','cases':descriptions,'bytes':total,'files':entries},indent=2));print('CASES',descriptions);print('BYTES',total);print('ERRORS',[e for e in entries if'error'in e])
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-additional-original-regions
+          path: additional-regions/
+          retention-days: 1
+          if-no-files-found: error
