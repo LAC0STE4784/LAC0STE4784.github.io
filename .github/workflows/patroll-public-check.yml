@@ -20,14 +20,14 @@ jobs:
       - name: Inspect only public contest content
         shell: bash
         env:
-          AGENT_BROWSER_DEFAULT_TIMEOUT: '20000'
+          AGENT_BROWSER_DEFAULT_TIMEOUT: '15000'
         run: |
-          set -uo pipefail
+          set +e
           BROWSER=$(command -v google-chrome || command -v chromium || true)
           if [ -n "$BROWSER" ]; then export AGENT_BROWSER_EXECUTABLE_PATH="$BROWSER"; fi
           agent-browser --version > results/browser-version.txt
           agent-browser open https://patroll.unifiedpatents.com/contests/q9ZWEtWvhQStAMmC4 > results/navigation.txt 2>&1
-          agent-browser wait 'text=Known References' > results/wait.txt 2>&1
+          agent-browser wait --load networkidle > results/wait.txt 2>&1
           agent-browser snapshot -i > results/overview.snapshot.txt 2>&1
           agent-browser get text body > results/overview.txt 2>&1
           agent-browser find text 'Known References' click > results/reference-click.txt 2>&1
@@ -38,7 +38,7 @@ jobs:
           agent-browser snapshot -i > results/rules.snapshot.txt 2>&1
           agent-browser get text body > results/rules.txt 2>&1
           agent-browser close > results/close.txt 2>&1
-          printf '%s\n' 'Anonymous public navigation only. No login, registration, account changes, messages, purchases, file upload, or contest submission.' > results/scope.txt
+          printf '%s\n' 'Anonymous public navigation only. No login, registration, account changes, messages, purchases, file upload, or contest submission. Completion of this workflow is NOT evidence that tabs loaded; inspect the captured outputs.' > results/scope.txt
       - name: Transfer public evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
