@@ -1,0 +1,49 @@
+name: Anonymous public contest verification
+on:
+  push:
+    branches: ['research/fe-bounty-local-20260909']
+    paths: ['.github/workflows/patroll-public-check.yml']
+permissions:
+  contents: read
+jobs:
+  public-read:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Install version-pinned browser reader locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          npm install --prefix "$RUNNER_TEMP/browser" --no-audit --no-fund agent-browser@0.36.0 > results/install.txt 2>&1
+          echo "$RUNNER_TEMP/browser/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Inspect only public contest content
+        shell: bash
+        env:
+          AGENT_BROWSER_DEFAULT_TIMEOUT: '20000'
+        run: |
+          set -uo pipefail
+          BROWSER=$(command -v google-chrome || command -v chromium || true)
+          if [ -n "$BROWSER" ]; then export AGENT_BROWSER_EXECUTABLE_PATH="$BROWSER"; fi
+          agent-browser --version > results/browser-version.txt
+          agent-browser open https://patroll.unifiedpatents.com/contests/q9ZWEtWvhQStAMmC4 > results/navigation.txt 2>&1
+          agent-browser wait 'text=Known References' > results/wait.txt 2>&1
+          agent-browser snapshot -i > results/overview.snapshot.txt 2>&1
+          agent-browser get text body > results/overview.txt 2>&1
+          agent-browser find text 'Known References' click > results/reference-click.txt 2>&1
+          agent-browser snapshot -i > results/references.snapshot.txt 2>&1
+          agent-browser get text body > results/references.txt 2>&1
+          agent-browser screenshot results/references.png > results/screenshot.txt 2>&1
+          agent-browser find text 'Rules' click > results/rules-click.txt 2>&1
+          agent-browser snapshot -i > results/rules.snapshot.txt 2>&1
+          agent-browser get text body > results/rules.txt 2>&1
+          agent-browser close > results/close.txt 2>&1
+          printf '%s\n' 'Anonymous public navigation only. No login, registration, account changes, messages, purchases, file upload, or contest submission.' > results/scope.txt
+      - name: Transfer public evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: patroll-public-check-20260909
+          path: results/
+          retention-days: 1
+          if-no-files-found: error
