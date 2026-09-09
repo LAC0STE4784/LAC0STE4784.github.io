@@ -12,9 +12,9 @@ jobs:
   probe:
     if: github.repository == 'LAC0STE4784/LAC0STE4784.github.io' && github.ref == 'refs/heads/research/vesuvius-progress-20260909'
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Retrieve exact upstream source (no credentials persisted)
+      - name: Retrieve pinned upstream source
         shell: bash
         run: |
           set -euo pipefail
@@ -22,38 +22,55 @@ jobs:
           git -C upstream remote add origin https://github.com/WillStevens/scrollreading.git
           git -C upstream fetch --depth=1 origin 62cbc21bdafbe0313fee11d781d729256a14262e
           git -C upstream checkout --detach FETCH_HEAD
-          test "$(git -C upstream rev-parse HEAD)" = 62cbc21bdafbe0313fee11d781d729256a14262e
           g++ --version | head -1
-          uname -a
-          free -h
-      - name: Check availability of author's small real patch archive
+      - name: Install binary-only dependencies in disposable workspace
         shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib, io, json, pathlib, struct, urllib.request, zipfile
-          url='https://dl.ash2txt.org/community-uploads/will/scroll4_patches.zip'
-          req=urllib.request.Request(url,headers={'User-Agent':'Vesuvius-reproducibility-research/1.0'})
-          try:
-              with urllib.request.urlopen(req,timeout=60) as response:
-                  data=response.read(16*1024*1024+1)
-              if len(data)>16*1024*1024:
-                  raise ValueError('Archive exceeds the 16 MiB probe limit')
-              z=zipfile.ZipFile(io.BytesIO(data))
-              entries=[{'name':x.filename,'bytes':x.file_size} for x in z.infolist()]
-              print(json.dumps({'url':url,'sha256':hashlib.sha256(data).hexdigest(),'archive_bytes':len(data),'file_count':len(entries),'first_entries':entries[:35]},indent=2))
-              # No archive or coordinates are uploaded, committed, or redistributed.
-              print('REAL_ARCHIVE_RETRIEVED=true')
-          except Exception as e:
-              print('REAL_ARCHIVE_RETRIEVED=false')
-              print(type(e).__name__+': '+str(e))
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip install --only-binary=:all: --disable-pip-version-check blosc2 numpy tifffile > pip.log 2>&1
+          .venv/bin/pip freeze
+          pkg-config --cflags --libs libtiff-4 || true
+          .venv/bin/python - <<'PY'
+          import blosc2,pathlib
+          p=pathlib.Path(blosc2.__file__).parent
+          print('BLOSC2_PACKAGE='+str(p))
+          print('BLOSC2_HEADERS='+str(list(p.rglob('blosc2.h'))))
+          print('BLOSC2_LIBRARIES='+str(list(p.rglob('libblosc2*'))))
           PY
-      - name: Build complete upstream executable, recording portability blockers
+      - name: Inspect small real patch archive without publishing coordinates
+        shell: bash
+        run: |
+          .venv/bin/python - <<'PY'
+          import hashlib,io,json,urllib.request,zipfile,numpy as np,tifffile
+          u='https://dl.ash2txt.org/community-uploads/will/scroll4_patches.zip'
+          with urllib.request.urlopen(u,timeout=60) as r:b=r.read(16*1024*1024+1)
+          assert len(b)<=16*1024*1024
+          assert hashlib.sha256(b).hexdigest()=='57143fc09d2fbc7ed547e3d7a00435521db37ca819d2843b3171f4b14e5d399e'
+          z=zipfile.ZipFile(io.BytesIO(b)); rows=[]
+          for n in sorted(z.namelist()):
+              if not n.endswith('/meta.json'):continue
+              prefix=n.rsplit('/',1)[0]
+              a=[tifffile.imread(io.BytesIO(z.read(prefix+'/'+k+'.tif'))) for k in 'xyz']
+              m=np.logical_and.reduce([np.isfinite(x)&(x>=0) for x in a])
+              meta=json.loads(z.read(n))
+              rows.append({'patch':prefix,'meta':meta,'shape':a[0].shape,'dtype':str(a[0].dtype),'valid':int(m.sum()),'all_minus_one':int(np.logical_and.reduce([x==-1 for x in a]).sum())})
+          print('REAL_DATA_METADATA='+json.dumps(rows))
+          # Data exist in process memory only, never published or included in artifacts.
+          PY
+      - name: Build complete upstream executable with identified dependency paths
         shell: bash
         run: |
           set +e
+          BROOT=$(.venv/bin/python -c 'import blosc2,pathlib; print(pathlib.Path(blosc2.__file__).parent)')
+          BHDR=$(find "$BROOT" -name blosc2.h -print -quit)
+          BLIB=$(find "$BROOT" -name libblosc2.so -print -quit)
+          BINCLUDE=$(dirname "$BHDR")
+          BLIBDIR=$(dirname "$BLIB")
           touch upstream/pipeline9/parameters.h
-          timeout 180 make -C upstream/pipeline9 -j2 simpaper10 CFLAGS='-O2 -Wall -fopenmp -include cstdint' > build.log 2>&1
+          timeout 240 make -C upstream/pipeline9 -j2 simpaper10 CFLAGS="-O2 -Wall -fopenmp -include cstdint -I$BINCLUDE" LFLAGS="-L$BLIBDIR -Wl,-rpath,$BLIBDIR -lblosc2 -ltiff" > build.log 2>&1
           result=$?
           echo "FULL_ORIGINAL_BUILD_EXIT=$result"
           tail -100 build.log
+          test "$result" -ne 0 || sha256sum upstream/pipeline9/simpaper10
           exit 0
