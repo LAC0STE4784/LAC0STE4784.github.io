@@ -1,0 +1,51 @@
+name: Isolated labelled control metadata
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-control-metadata.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Download one dependency wheel without installing or executing it
+        run: python3 -m pip download --no-deps --only-binary=:all: --dest control-inputs/wheels timm==1.0.22
+      - name: Fetch public control metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures,datetime,hashlib,json,pathlib,urllib.request
+          OUT=pathlib.Path('control-inputs'); OUT.mkdir(exist_ok=True)
+          tasks=[]
+          LABEL='https://huggingface.co/buckets/scrollprize/datasets/resolve/ink_9um/labels/aligned-scrollprizeorg-21slices/pherc0139-w016/'
+          for kind in ('inklabels','supervision_mask','validation_mask'):
+              for key in ('.zarray','.zattrs','.zgroup','0/.zarray'):
+                  tasks.append((LABEL+f'pherc0139-w016_{kind}.zarr/'+key,f'labels/{kind}/{key.replace("/","_").replace(".","dot_")}.json'))
+          BASE='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/PHerc0139/segments/20250108000004-w029_2025010827/surface-volumes/2.399um-0.22m-78keV-volume-20260102150214.zarr/'
+          tasks += [(BASE+k,'volume/'+k.replace('/','_').replace('.','dot_')+'.json') for k in ('.zattrs','2/.zarray')]
+          tasks += [('https://huggingface.co/api/buckets/scrollprize/datasets/tree/ink_9um/labels/aligned-scrollprizeorg-21slices/pherc0139-w016/pherc0139-w016_validation_mask.zarr','labels/validation_listing.json')]
+          def fetch(task):
+              url,name=task;row={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Vesuvius-public-input-research/2.0'}),timeout=30) as r: data=r.read(1000001)
+                  if len(data)>1000000: raise ValueError('metadata cap')
+                  p=OUT/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+                  row.update(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+                  if len(data)<5000: print(name,data.decode('utf8'),flush=True)
+              except Exception as e:row['error']=str(e)
+              return row
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool: entries=list(pool.map(fetch,tasks))
+          for p in (OUT/'wheels').glob('*'): entries.append({'file':str(p.relative_to(OUT)),'source':'PyPI timm==1.0.22 wheel, no dependencies installed','bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          (OUT/'manifest.json').write_text(json.dumps({'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Existing public metadata and dependency only; no novel readings, predictions or deployment','files':entries},indent=2))
+          print('ERRORS',json.dumps([e for e in entries if 'error' in e]),flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-labelled-control-metadata
+          path: control-inputs/
+          retention-days: 1
+          include-hidden-files: true
+          if-no-files-found: error
