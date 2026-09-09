@@ -1,0 +1,58 @@
+name: Isolated Fe local-EVM checks
+on:
+  push:
+    branches: ['research/fe-bounty-local-20260909']
+    paths: ['.github/workflows/fe-local-audit.yml']
+permissions:
+  contents: read
+concurrency:
+  group: isolated-fe-local-20260909
+  cancel-in-progress: false
+jobs:
+  local-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Fetch the exact public compiler and authorized challenge source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          curl --fail --location --max-time 120 --retry 1 https://github.com/argotorg/fe/releases/download/v26.1.0/fe_linux_amd64 -o fe
+          echo 'e179c7a4b1a913011b4919db38f915d860b8dedd23d8f81a4906d2b0c548e440  fe' | sha256sum --check
+          chmod +x fe
+          ./fe --version > results/compiler-version.txt
+          git init source
+          git -C source remote add origin https://github.com/fe-lang/bountiful.git
+          git -C source fetch --depth 1 origin 5137aa481073dfb67947fed0fa3843ae207362b6
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 5137aa481073dfb67947fed0fa3843ae207362b6
+          git -C source rev-parse HEAD > results/source-commit.txt
+          (cd source/contracts && timeout 180 "$GITHUB_WORKSPACE/fe" build) > results/compiler-build.txt 2>&1
+          find source/contracts/out -maxdepth 1 -type f -name '*.bin' -print0 | sort -z | xargs -0 sha256sum > results/build-hashes.txt
+      - name: Install an isolated local test EVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check 'eth-tester[py-evm]==0.13.0b1' 'cryptography==45.0.7' > results/install.txt 2>&1
+          .venv/bin/python -m pip freeze > results/dependencies.txt
+      - name: Test only fresh local deployments
+        shell: bash
+        env:
+          FE_OUTPUT: source/contracts/out
+          RESULTS_DIR: results
+        run: |
+          set -euo pipefail
+          timeout 390 .venv/bin/python research/fe/local_checks.py
+      - name: Transfer bounded diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fe-local-checks-20260909
+          path: results/
+          retention-days: 1
+          if-no-files-found: error
