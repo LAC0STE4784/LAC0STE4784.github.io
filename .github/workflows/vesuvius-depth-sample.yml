@@ -1,0 +1,59 @@
+name: Isolated PHerc1447 depth sample
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-depth-sample.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Fetch original published intensities, not inferred writing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures, datetime, hashlib, json, pathlib, threading, urllib.request
+          OUT=pathlib.Path('depth-sample'); OUT.mkdir()
+          BASE='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/'
+          SEG='PHerc1447/segments/20250703025628-auto_grown_20250703025628283/'
+          ROOT=BASE+SEG+'surface-volumes/8.64um-1.2m-116keV-volume-20250521151220'
+          tasks=[(ROOT+'.tifs/%02d.tif'%i,'whole/%02d.tif'%i,8*1024*1024) for i in (5,10,15,20,25)]
+          tasks += [(ROOT+'.zarr/0/0.%d.%d'%(r,c),'chunks/0.%d.%d'%(r,c),600000) for r in range(4,12) for c in range(17,25)]
+          tasks += [(ROOT+'.zarr/0/.zarray','zarray.json',10000),(ROOT+'.zarr/.zattrs','zattrs.json',10000)]
+          tasks += [('https://scrollprize.org/img/firstletters/pi1.webp','known-control-pi1.webp',200000)]
+          lock=threading.Lock();entries=[];total=0
+          def fetch(task):
+              global total
+              url,name,limit=task
+              assert url.startswith(BASE) or url=='https://scrollprize.org/img/firstletters/pi1.webp'
+              row={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Vesuvius-public-research-probe/1.0'}),timeout=20) as response:
+                      if int(response.headers.get('Content-Length',0))>limit: raise ValueError('Per-file cap')
+                      data=response.read(limit+1)
+                  if len(data)>limit: raise ValueError('Per-file cap')
+                  with lock:
+                      if total+len(data)>80*1024*1024: raise ValueError('Total cap')
+                      total+=len(data)
+                  path=OUT/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+                  row.update(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+              except Exception as exc: row['error']=str(exc)
+              with lock:
+                  entries.append(row);print(json.dumps(row),flush=True)
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+              list(pool.map(fetch,tasks))
+          metadata={'scope':'Original public inputs only. No new discoveries, enhancement outputs, transcriptions, or prize claims published.', 'segment':SEG,'eligible_volume':'20250521151220','region_fullres_yx':[512,1536,2176,3200],'all_depth_indices':list(range(31)),'whole_surface_depth_indices':[5,10,15,20,25],'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'bytes':total,'files':sorted(entries,key=lambda e:e['file'])}
+          (OUT/'manifest.json').write_text(json.dumps(metadata,indent=2))
+          (OUT/'README.txt').write_text('Pre-existing Vesuvius Challenge public CT surface-volume input. Preserve original dataset licensing/attribution (see scrollprize.org/data). The separate known pi1 control is an already-published example, not a discovery. This job performs no deployment, no paid compute request, and no modification to the default branch.\n')
+          print('FINAL bytes',total,'successes',sum('error' not in e for e in entries),'of',len(tasks),flush=True)
+          PY
+      - name: Transfer original inputs for local analysis
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vesuvius-original-depth-sample
+          path: depth-sample/
+          retention-days: 1
+          if-no-files-found: error
