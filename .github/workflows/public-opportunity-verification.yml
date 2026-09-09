@@ -1,0 +1,71 @@
+name: Public eligibility and file verification
+on:
+  push:
+    branches: ['research/fe-bounty-local-20260909']
+    paths: ['.github/workflows/public-opportunity-verification.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Isolated anonymous browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          npm install --prefix "$RUNNER_TEMP/browser" --no-audit --no-fund agent-browser@0.36.0 > results/install.txt 2>&1
+          echo "$RUNNER_TEMP/browser/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Read public interfaces only
+        shell: bash
+        env:
+          AGENT_BROWSER_DEFAULT_TIMEOUT: '20000'
+        run: |
+          set +e
+          BROWSER=$(command -v google-chrome || command -v chromium || true)
+          if [ -n "$BROWSER" ]; then export AGENT_BROWSER_EXECUTABLE_PATH="$BROWSER"; fi
+          agent-browser open https://ez-patents.com/ > results/patent-open.txt 2>&1
+          agent-browser snapshot -i > results/patent-initial.snapshot.txt 2>&1
+          agent-browser find label 'Application Number' fill '13030118' > results/patent-fill.txt 2>&1
+          agent-browser find role button click --name 'Fetch Documents' > results/patent-fetch.txt 2>&1
+          agent-browser wait --load networkidle > results/patent-wait.txt 2>&1
+          agent-browser get text body > results/patent-body.txt 2>&1
+          agent-browser snapshot -i > results/patent-final.snapshot.txt 2>&1
+          agent-browser eval 'JSON.stringify(Array.from(document.querySelectorAll("a")).map(a=>({text:a.textContent,url:a.href})))' > results/patent-links.json 2>&1
+          agent-browser screenshot results/patent.png > results/patent-shot.txt 2>&1
+          agent-browser open https://app.bluequbit.io/hackathons/GFgHTGbTylwmMsCp > results/quantum-open.txt 2>&1
+          agent-browser wait --load networkidle > results/quantum-wait.txt 2>&1
+          agent-browser get text body > results/quantum-body.txt 2>&1
+          agent-browser snapshot -i > results/quantum.snapshot.txt 2>&1
+          agent-browser eval 'JSON.stringify(Array.from(document.querySelectorAll("a")).map(a=>({text:a.textContent,url:a.href})))' > results/quantum-links.json 2>&1
+          agent-browser screenshot results/quantum.png > results/quantum-shot.txt 2>&1
+          agent-browser close > results/close.txt 2>&1
+          echo 'Public reading/search only. No authentication, uploads, legal acceptance, purchases, or transactions.' > results/scope.txt
+      - name: Read-only public wallet balance check
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime,json,pathlib,urllib.request
+          address='bc1qcga5wx9e7gvz2eml0gpkrlpmttjzyw6rc6xfzz'
+          out=pathlib.Path('results'); observations=[]
+          for base in ['https://mempool.space/api/address/','https://blockstream.info/api/address/']:
+              url=base+address
+              row={'url':url,'retrieved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+              try:
+                  with urllib.request.urlopen(url,timeout=20) as r: raw=r.read(50000)
+                  body=json.loads(raw)
+                  assert body['address']==address
+                  row['response']=body
+              except Exception as exc: row['error']=str(exc)
+              observations.append(row)
+          (out/'wallet-check.json').write_text(json.dumps(observations,indent=2))
+          PY
+      - name: Keep public diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-opportunity-verification-20260909
+          path: results/
+          retention-days: 1
+          if-no-files-found: error
