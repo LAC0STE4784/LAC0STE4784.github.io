@@ -1,0 +1,50 @@
+name: Public patent history read
+on:
+  push:
+    branches: ['research/fe-bounty-local-20260909']
+    paths: ['.github/workflows/patent-history-read.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Isolated browser setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          npm install --prefix "$RUNNER_TEMP/browser" --no-audit --no-fund agent-browser@0.36.0 > results/install.txt 2>&1
+          echo "$RUNNER_TEMP/browser/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Wait for public document retrieval to finish or fail
+        shell: bash
+        env:
+          AGENT_BROWSER_DEFAULT_TIMEOUT: '20000'
+        run: |
+          set +e
+          BROWSER=$(command -v google-chrome || command -v chromium || true)
+          if [ -n "$BROWSER" ]; then export AGENT_BROWSER_EXECUTABLE_PATH="$BROWSER"; fi
+          curl --fail --location --max-time 20 https://ez-patents.com/ -o results/page-source.html
+          agent-browser open https://ez-patents.com/ > results/open.txt 2>&1
+          agent-browser snapshot -i > results/initial.snapshot.txt 2>&1
+          agent-browser find label 'Application Number' fill '13030118' > results/fill.txt 2>&1
+          agent-browser find role button click --name 'Fetch Documents' > results/fetch.txt 2>&1
+          for i in 1 2 3 4 5 6; do
+            agent-browser wait 10000 > results/wait-$i.txt 2>&1
+            agent-browser get text body > results/body-$i.txt 2>&1
+            if ! grep -q 'Fetching documents' results/body-$i.txt; then break; fi
+          done
+          agent-browser snapshot -i > results/final.snapshot.txt 2>&1
+          agent-browser eval 'JSON.stringify(Array.from(document.querySelectorAll("a")).map(a=>({text:a.textContent,url:a.href})))' > results/links.json 2>&1
+          agent-browser screenshot results/page.png > results/shot.txt 2>&1
+          agent-browser close > results/close.txt 2>&1
+          echo 'Public document search only; no credentials or legal submissions.' > results/scope.txt
+      - name: Preserve observed public output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: patent-history-read-20260909
+          path: results/
+          retention-days: 1
+          if-no-files-found: error
