@@ -1,0 +1,44 @@
+name: Isolated expanded PHerc1447 original inputs
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-expanded-depth-input.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch only existing published CT chunks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures,datetime,hashlib,json,pathlib,threading,urllib.request
+          OUT=pathlib.Path('expanded-input');OUT.mkdir()
+          BASE='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/PHerc1447/segments/20250703025628-auto_grown_20250703025628283/surface-volumes/8.64um-1.2m-116keV-volume-20250521151220.zarr/'
+          tasks=[(BASE+f'0/0.{r}.{c}',f'chunks/0.{r}.{c}',600000)for r in range(16)for c in range(13,29)if not(4<=r<12 and 17<=c<25)]
+          tasks += [(BASE+'0/.zarray','zarray.json',10000),(BASE+'.zattrs','zattrs.json',20000)]
+          total=0;lock=threading.Lock()
+          def fetch(task):
+              global total
+              url,name,limit=task;e={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(url,timeout=30)as r:data=r.read(limit+1)
+                  assert len(data)<=limit
+                  with lock:total+=len(data);assert total<120*1024*1024
+                  p=OUT/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+                  e.update(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+              except Exception as exc:e['error']=str(exc)
+              return e
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4)as pool:entries=list(pool.map(fetch,tasks))
+          m={'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Pre-existing original eligible 8.64um CT inputs only. No predictions, new readings, higher-resolution scans, deployment, schedules or paid APIs.','region_yx':[0,2048,1664,3712],'shape':[31,2048,2048],'reuse_existing_chunk_rows':[4,12],'reuse_existing_chunk_cols':[17,25],'bytes':total,'files':entries}
+          (OUT/'manifest.json').write_text(json.dumps(m,indent=2));print('SUCCESS',sum('error'not in e for e in entries),'OF',len(entries),'BYTES',total);print('ERRORS',[e for e in entries if'error'in e])
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-expanded-original-depth-input
+          path: expanded-input/
+          retention-days: 1
+          if-no-files-found: error
