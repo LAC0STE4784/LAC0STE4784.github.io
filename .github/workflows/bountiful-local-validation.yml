@@ -1,0 +1,111 @@
+name: Bounded local Bountiful validation
+on:
+  push:
+    branches: ['research/bountiful-local-validation-20260909']
+    paths: ['.github/workflows/bountiful-local-validation.yml']
+permissions:
+  contents: read
+jobs:
+  local-validation:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Verify official compiler and fetch pinned public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/research-bin"
+          export RESEARCH_BIN="$RUNNER_TEMP/research-bin"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile, urllib.request
+          out=pathlib.Path(os.environ['RESEARCH_BIN'])
+          def get(url, cap):
+              req=urllib.request.Request(url,headers={'User-Agent':'Bountiful-local-validation/1.0'})
+              with urllib.request.urlopen(req,timeout=45) as r:
+                  if int(r.headers.get('Content-Length',0))>cap: raise ValueError('Download cap')
+                  b=r.read(cap+1)
+              if len(b)>cap: raise ValueError('Download cap')
+              return b
+          fe=get('https://github.com/argotorg/fe/releases/download/v26.1.0/fe_linux_amd64',50000000)
+          expected='e179c7a4b1a913011b4919db38f915d860b8dedd23d8f81a4906d2b0c548e440'
+          assert hashlib.sha256(fe).hexdigest()==expected,'Fe compiler digest mismatch'
+          (out/'fe').write_bytes(fe);(out/'fe').chmod(0o700)
+          print('FE_VERIFIED_SHA256',expected)
+          meta=json.loads(get('https://api.github.com/repos/foundry-rs/foundry/releases/tags/v1.3.1',300000))
+          asset=next(a for a in meta['assets'] if a['name']=='foundry_v1.3.1_linux_amd64.tar.gz')
+          assert asset['browser_download_url'].startswith('https://github.com/foundry-rs/foundry/releases/download/v1.3.1/')
+          archive=get(asset['browser_download_url'],100000000)
+          digest=hashlib.sha256(archive).hexdigest()
+          assert asset['digest']=='sha256:'+digest,'Foundry digest mismatch'
+          f=out/'foundry.tar.gz';f.write_bytes(archive)
+          with tarfile.open(f) as t:
+              for name in ('forge','cast'):
+                  matches=[m for m in t.getmembers() if pathlib.PurePosixPath(m.name).name==name and m.isfile()]
+                  assert len(matches)==1
+                  data=t.extractfile(matches[0]).read(100000001)
+                  assert len(data)<=100000000
+                  (out/name).write_bytes(data);(out/name).chmod(0o700)
+          f.unlink()
+          print('FOUNDRY_VERIFIED_SHA256',digest)
+          PY
+          echo "$RESEARCH_BIN" >> "$GITHUB_PATH"
+          git init "$RUNNER_TEMP/bountiful"
+          git -C "$RUNNER_TEMP/bountiful" fetch --depth 1 https://github.com/fe-lang/bountiful.git 5137aa481073dfb67947fed0fa3843ae207362b6
+          git -C "$RUNNER_TEMP/bountiful" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/bountiful" rev-parse HEAD)" = 5137aa481073dfb67947fed0fa3843ae207362b6
+      - name: Compile and run upstream tests only inside local virtual machines
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/bountiful"
+          fe --version
+          forge --version
+          timeout 120s fe build contracts
+          timeout 120s fe test contracts
+          python3 - <<'PY'
+          import hashlib,pathlib
+          for p in sorted(pathlib.Path('contracts/out').glob('*.bin')):
+              raw=bytes.fromhex(p.read_text().strip())
+              print('BYTECODE',p.name,len(raw),hashlib.sha256(raw).hexdigest())
+              p.write_bytes(raw)
+          PY
+          timeout 120s forge test --use 0.8.30 -vv
+      - name: Read published challenge funding and code without transactions
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,hashlib,pathlib,os
+          contracts={
+            'Registry':'0x71fB6afcD98c5BD611712ad4b8D314EF729aa69D',
+            'Game':'0x046a3a4968282BaA7ad6291723873C8275434623',
+            'Game2D':'0xE959e7ecA1afCa6cf2Bf8b07e25Da355b6C8E8c7',
+            'GameEnum':'0xfb5423aDfBAC65ac675845Bb4FEBf8aeC128272E',
+            'GameBitboard':'0x5E987b6aADD4DFC2236D21edE6D07feb04350b06',
+            'GameTrait':'0x85b4d0B32b8a285111c244E52524B642f1A5ccFE',
+            'GameNested':'0x3dF9789634995546B0126bC28B9F9FcBCB129F18',
+            'GameMonadic':'0x86B7AEce1503242fED29E593FAEde3b7b00a5a1D'}
+          # This helper can perform ONLY the three read-only RPC methods below.
+          allowed={'eth_blockNumber','eth_getBalance','eth_getCode'}
+          for endpoint in ('https://ethereum-rpc.publicnode.com','https://eth.llamarpc.com'):
+            def rpc(method,params):
+              assert method in allowed
+              data=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
+              request=urllib.request.Request(endpoint,data=data,headers={'Content-Type':'application/json'})
+              with urllib.request.urlopen(request,timeout=12) as r: obj=json.load(r)
+              if 'error' in obj: raise ValueError(obj['error'])
+              return obj['result']
+            try:
+              block=rpc('eth_blockNumber',[])
+              balance=rpc('eth_getBalance',[contracts['Registry'],block])
+              print('READ_ONLY_SNAPSHOT',json.dumps({'endpoint':endpoint,'block':block,'registry_balance_wei':int(balance,16)}))
+              for name,addr in contracts.items():
+                code=bytes.fromhex(rpc('eth_getCode',[addr,block])[2:])
+                p=pathlib.Path(os.environ['RUNNER_TEMP'])/'bountiful/contracts/out'/((name if name!='Registry' else 'BountyRegistry')+'.runtime.bin')
+                local=p.read_bytes() if p.exists() else None
+                print('RUNTIME',json.dumps({'name':name,'address':addr,'bytes':len(code),'sha256':hashlib.sha256(code).hexdigest(),'matches_local_build':local==code if local is not None else None}))
+              break
+            except Exception as e: print('READ_ONLY_PROVIDER_FAILURE',endpoint,type(e).__name__,str(e)[:180])
+          print('No transactions, locks, deposits, deployments, artifacts, secrets or paid runners were requested by this workflow.')
+          PY
