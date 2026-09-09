@@ -1,0 +1,59 @@
+name: Vesuvius isolated research
+on:
+  push:
+    branches: [research/vesuvius-progress-20260909]
+    paths: [.github/workflows/vesuvius-research.yml]
+permissions:
+  contents: read
+concurrency:
+  group: vesuvius-progress-20260909
+  cancel-in-progress: true
+jobs:
+  probe:
+    if: github.repository == 'LAC0STE4784/LAC0STE4784.github.io' && github.ref == 'refs/heads/research/vesuvius-progress-20260909'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve exact upstream source (no credentials persisted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init upstream
+          git -C upstream remote add origin https://github.com/WillStevens/scrollreading.git
+          git -C upstream fetch --depth=1 origin 62cbc21bdafbe0313fee11d781d729256a14262e
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = 62cbc21bdafbe0313fee11d781d729256a14262e
+          g++ --version | head -1
+          uname -a
+          free -h
+      - name: Check availability of author's small real patch archive
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, pathlib, struct, urllib.request, zipfile
+          url='https://dl.ash2txt.org/community-uploads/will/scroll4_patches.zip'
+          req=urllib.request.Request(url,headers={'User-Agent':'Vesuvius-reproducibility-research/1.0'})
+          try:
+              with urllib.request.urlopen(req,timeout=60) as response:
+                  data=response.read(16*1024*1024+1)
+              if len(data)>16*1024*1024:
+                  raise ValueError('Archive exceeds the 16 MiB probe limit')
+              z=zipfile.ZipFile(io.BytesIO(data))
+              entries=[{'name':x.filename,'bytes':x.file_size} for x in z.infolist()]
+              print(json.dumps({'url':url,'sha256':hashlib.sha256(data).hexdigest(),'archive_bytes':len(data),'file_count':len(entries),'first_entries':entries[:35]},indent=2))
+              # No archive or coordinates are uploaded, committed, or redistributed.
+              print('REAL_ARCHIVE_RETRIEVED=true')
+          except Exception as e:
+              print('REAL_ARCHIVE_RETRIEVED=false')
+              print(type(e).__name__+': '+str(e))
+          PY
+      - name: Build complete upstream executable, recording portability blockers
+        shell: bash
+        run: |
+          set +e
+          touch upstream/pipeline9/parameters.h
+          timeout 180 make -C upstream/pipeline9 -j2 simpaper10 CFLAGS='-O2 -Wall -fopenmp -include cstdint' > build.log 2>&1
+          result=$?
+          echo "FULL_ORIGINAL_BUILD_EXIT=$result"
+          tail -100 build.log
+          exit 0
