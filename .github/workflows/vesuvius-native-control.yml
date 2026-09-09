@@ -1,0 +1,73 @@
+name: Isolated native-resolution known-ink control
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-native-control.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download existing native control labels and CT
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import collections,concurrent.futures,datetime,hashlib,json,math,pathlib,re,threading,urllib.request
+          OUT=pathlib.Path('native-control');OUT.mkdir()
+          PREFIX='ink_9um/labels/native9-scrollprizeorg-21slices/w035/'
+          HF='https://huggingface.co/buckets/scrollprize/datasets/resolve/'
+          S3='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/PHerc0139/segments/20260317000000-w035_2026031718/surface-volumes/9.362um-1.2m-113keV-volume-20250728140407.zarr/'
+          entries=[];total=0;lock=threading.Lock()
+          def fetch(task):
+              global total
+              url,name,limit=task;row={'url':url,'file':name}
+              try:
+                  with urllib.request.urlopen(url,timeout=30)as r:data=r.read(limit+1)
+                  assert len(data)<=limit
+                  with lock:total+=len(data);assert total<60*1024*1024
+                  p=OUT/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+                  row.update(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+              except Exception as e:row['error']=str(e)
+              with lock:entries.append(row)
+              return row
+          for kind in ('inklabels','supervision_mask'):
+              for key in ('.zattrs','0/.zarray'):
+                  fetch((HF+PREFIX+f'w035_{kind}.zarr/'+key,f'labels/{kind}/{key}',50000))
+          fetch((S3+'0/.zarray','volume/zarray.json',10000));fetch((S3+'.zattrs','volume/zattrs.json',10000))
+          try:
+              meta=json.loads((OUT/'volume/zarray.json').read_text());labelmeta=json.loads((OUT/'labels/inklabels/0/.zarray').read_text())
+              assert tuple(meta['shape'][1:])==tuple(labelmeta['shape'][1:])
+              assert tuple(meta['chunks'][1:])==(128,128) and tuple(labelmeta['chunks'][1:])==(128,128)
+              url='https://huggingface.co/api/buckets/scrollprize/datasets/tree/'+PREFIX+'w035_inklabels.zarr';items=[];pages=0
+              while url:
+                  assert pages<6 and url.startswith('https://huggingface.co/')
+                  with urllib.request.urlopen(url,timeout=30)as resp:
+                      data=resp.read(1500001);assert len(data)<=1500000;items+=json.loads(data);link=resp.headers.get('Link','')
+                  (OUT/f'listing-{pages}.json').write_bytes(data);pages+=1
+                  match=re.search(r'<([^>]+)>;\s*rel="next"',link);url=match.group(1)if match else None
+              chunks=[e for e in items if re.fullmatch(r'0\.\d+\.\d+',e['path'].rsplit('/',1)[-1])]
+              common=collections.Counter(e.get('xetHash')for e in chunks).most_common(1)[0][0]
+              candidates=sorted([e for e in chunks if e.get('xetHash')!=common],key=lambda e:tuple(map(int,e['path'].rsplit('/',1)[-1].split('.'))))
+              chosen=candidates[len(candidates)//2];_,row,col=map(int,chosen['path'].rsplit('/',1)[-1].split('.'))
+              ny=meta['shape'][1]//128;nx=meta['shape'][2]//128
+              row0=max(0,min(row-2,ny-5));col0=max(0,min(col-2,nx-5));rows=range(row0,row0+5);cols=range(col0,col0+5)
+              tasks=[];sep=meta.get('dimension_separator','.')
+              for r in rows:
+                  for c in cols:
+                      tasks.append((S3+'0/'+sep.join(map(str,(0,r,c))),f'volume/0.{r}.{c}',5*1024*1024))
+                      for kind in ('inklabels','supervision_mask'):tasks.append((HF+PREFIX+f'w035_{kind}.zarr/0/0.{r}.{c}',f'labels/{kind}/0/0.{r}.{c}',1000000))
+              with concurrent.futures.ThreadPoolExecutor(max_workers=4)as pool:list(pool.map(fetch,tasks))
+              selection={'rows':list(rows),'cols':list(cols),'selected':chosen,'listing_pages':pages,'note':'Numeric median non-modal known-ink label chunk; this is a TRAINING control, not held-out validation. No prediction used for selection.'}
+          except Exception as e:selection={'error':str(e)}
+          (OUT/'manifest.json').write_text(json.dumps({'scope':'Already-published labelled control inputs only. No novel results, predictions or deployment.','created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'selection':selection,'bytes':total,'files':entries},indent=2));print('SELECTION',selection);print('ERRORS',[e for e in entries if'error'in e])
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-native-known-ink-inputs
+          path: native-control/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
