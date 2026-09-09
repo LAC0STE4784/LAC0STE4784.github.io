@@ -11,7 +11,8 @@ jobs:
     timeout-minutes: 6
     steps:
       - name: Download one dependency wheel without installing or executing it
-        run: python3 -m pip download --no-deps --only-binary=:all: --dest control-inputs/wheels timm==1.0.22
+        run: |
+          python3 -m pip download --no-deps --only-binary=:all: --dest control-inputs/wheels timm==1.0.22
       - name: Fetch public control metadata
         shell: bash
         run: |
@@ -26,6 +27,7 @@ jobs:
           BASE='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/PHerc0139/segments/20250108000004-w029_2025010827/surface-volumes/2.399um-0.22m-78keV-volume-20260102150214.zarr/'
           tasks += [(BASE+k,'volume/'+k.replace('/','_').replace('.','dot_')+'.json') for k in ('.zattrs','2/.zarray')]
           tasks += [('https://huggingface.co/api/buckets/scrollprize/datasets/tree/ink_9um/labels/aligned-scrollprizeorg-21slices/pherc0139-w016/pherc0139-w016_validation_mask.zarr','labels/validation_listing.json')]
+          tasks += [('https://raw.githubusercontent.com/ScrollPrize/villa/3ea17f54a9b3d5fd1aaf73e1d2c8386dbaa9f30e/vesuvius/src/vesuvius/image_proc/intensity/normalization.py','source/normalization.py')]
           def fetch(task):
               url,name=task;row={'url':url,'file':name}
               try:
