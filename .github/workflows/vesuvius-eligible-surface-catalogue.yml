@@ -1,0 +1,56 @@
+name: Isolated eligible surface catalogue
+on:
+  push:
+    branches: ['research/vesuvius-public-data-20260909']
+    paths: ['.github/workflows/vesuvius-eligible-surface-catalogue.yml']
+permissions:
+  contents: read
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Catalogue existing public metadata only
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures,datetime,hashlib,json,pathlib,urllib.parse,urllib.request,xml.etree.ElementTree as ET
+          OUT=pathlib.Path('surface-catalogue');OUT.mkdir()
+          B='https://vesuvius-challenge-open-data.s3.us-east-1.amazonaws.com/'
+          scrolls={'PHerc0125':'20250821151825','PHerc0191':'20250821151635','PHerc0211':'20250821151803','PHerc0257':'20250821151750','PHerc0268':'20251110183117','PHerc0358':'20250821151737','PHerc0800':'20250521135224','PHerc0813':'20250821151723','PHerc0826':'20250821151701','PHerc1203':'20250820131727','PHerc1218':'20250521120456','PHerc1447':'20250521151220','PHerc1545':'20250821151648'}
+          def listing(prefix):
+              u=B+'?'+urllib.parse.urlencode({'list-type':'2','prefix':prefix,'delimiter':'/','max-keys':250})
+              with urllib.request.urlopen(u,timeout=20)as r:b=r.read(300001)
+              assert len(b)<=300000
+              root=ET.fromstring(b);ns={'s':'http://s3.amazonaws.com/doc/2006-03-01/'}
+              return {'prefix':prefix,'url':u,'sha256':hashlib.sha256(b).hexdigest(),'truncated':root.findtext('s:IsTruncated',namespaces=ns)=='true','prefixes':[p.text for p in root.findall('s:CommonPrefixes/s:Prefix',ns)],'keys':[p.text for p in root.findall('s:Contents/s:Key',ns)]}
+          def one(item):
+              s,v=item;out={'scroll':s,'eligible_scan':v,'steps':[],'volumes':[]}
+              try:
+                  segs=listing(s+'/segments/');out['steps'].append(segs)
+                  # Bounded predeclared choice: at most 3 lexicographically last published segments.
+                  for seg in sorted(segs['prefixes'])[-3:]:
+                      try:
+                          vols=listing(seg+'surface-volumes/');out['steps'].append(vols)
+                          for p in vols['prefixes']:
+                              if v in p and p.endswith('.zarr/'):
+                                  row={'path':p}
+                                  for key in('.zattrs','0/.zarray'):
+                                      try:
+                                          with urllib.request.urlopen(B+p+key,timeout=20)as r:raw=r.read(50001)
+                                          assert len(raw)<=50000;row[key]=json.loads(raw)
+                                      except Exception as e:row[key]={'error':str(e)}
+                                  out['volumes'].append(row)
+                      except Exception as e:out['steps'].append({'prefix':seg,'error':str(e)})
+              except Exception as e:out['error']=str(e)
+              print(s,len(out['volumes']),out.get('error',''),flush=True)
+              return out
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3)as pool:results=list(pool.map(one,scrolls.items()))
+          (OUT/'catalogue.json').write_text(json.dumps({'created_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Existing public metadata only. No novel readings, model predictions, transcriptions or deployments. Catalogue is bounded and not exhaustive.','selection_rule':'At most the 3 lexicographically last published segments per eligible scroll, then exact eligible scan ID.','results':results},indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vesuvius-eligible-surface-catalogue
+          path: surface-catalogue/
+          retention-days: 1
+          if-no-files-found: error
