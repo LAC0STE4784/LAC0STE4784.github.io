@@ -1,0 +1,63 @@
+name: Vesuvius isolated validation
+on:
+  push:
+    branches: [research/vesuvius-validation-20260909]
+    paths: ['research/vesuvius/**', '.github/workflows/vesuvius-validation.yml']
+permissions:
+  contents: read
+concurrency:
+  group: vesuvius-research-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.repository == 'LAC0STE4784/LAC0STE4784.github.io'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Fetch only this public research checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init work
+          cd work
+          git remote add origin https://github.com/LAC0STE4784/LAC0STE4784.github.io.git
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Inspect public native patch archive without redistributing data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, zipfile, io, json, hashlib, struct, math
+          url='https://dl.ash2txt.org/community-uploads/will/scroll4_patches.zip'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              data=response.read(16*1024*1024+1)
+          assert len(data)<=16*1024*1024
+          print('DATA_ARCHIVE',json.dumps({'url':url,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()}))
+          z=zipfile.ZipFile(io.BytesIO(data))
+          assert sum(x.file_size for x in z.infolist())<=256*1024*1024
+          rows=[]
+          for item in z.infolist():
+              row={'name':item.filename,'bytes':item.file_size}
+              if item.filename.endswith('.bin'):
+                  b=z.read(item)
+                  row['divisible_by_20']=len(b)%20==0
+                  if len(b)%20==0 and b:
+                      points=list(struct.iter_unpack('<5f',b))
+                      row['records']=len(points)
+                      row['all_finite']=all(math.isfinite(v) for p in points for v in p)
+                      row['local_xy_integral']=all(p[0].is_integer() and p[1].is_integer() for p in points)
+              rows.append(row)
+          print('ARCHIVE_MANIFEST',json.dumps(rows))
+          print('NO_DATA_REDISTRIBUTED: archive remains ephemeral; no artifact or cache upload.')
+          PY
+      - name: Run reproducible native validation when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          if [ -f research/vesuvius/validate.py ]; then
+            python3 research/vesuvius/validate.py
+          else
+            echo 'Bootstrap inspection only; native validation not yet included.'
+          fi
